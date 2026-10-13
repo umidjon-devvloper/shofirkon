@@ -161,3 +161,84 @@ export async function handleAdd(ctx: Context): Promise<void> {
   await ctx.reply(info);
   await ctx.reply('1. 👤 F.I.O. ni kiriting:', cancelKeyboard());
 }
+
+function formatDate(date: Date): string {
+  const d = date.getDate().toString().padStart(2, '0');
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}.${m}.${y}`;
+}
+
+function calculateAge(birthDate: Date): number {
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+  return age;
+}
+
+export async function handleFind(ctx: Context): Promise<void> {
+  if (ctx.chat?.type !== 'private') return;
+
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  if (!isAdmin(telegramId)) {
+    await ctx.reply("❌ Bu buyruq faqat admin uchun.");
+    return;
+  }
+
+  const msg = ctx.message;
+  if (!msg || !('text' in msg)) return;
+
+  const parts = msg.text.split(/\s+/);
+  if (parts.length < 2) {
+    await ctx.reply("❌ Format: /find JSHSHIR\n\nMasalan: /find 12345678901234");
+    return;
+  }
+
+  const jshshir = parts[1].trim();
+  if (!/^\d{14}$/.test(jshshir)) {
+    await ctx.reply("❌ JSHSHIR 14 ta raqamdan iborat bo'lishi kerak.");
+    return;
+  }
+
+  const citizen = await Citizen.findOne({ jshshir }).lean();
+  if (!citizen) {
+    await ctx.reply(`❌ JSHSHIR ${jshshir} bo'yicha fuqaro topilmadi.`);
+    return;
+  }
+
+  const family = await Family.findById(citizen.familyId).lean();
+  const mahalla = await Mahalla.findById(citizen.mahallaId).lean();
+
+  let info = "🔍 FUQARO MA'LUMOTLARI\n\n";
+  info += `👤 F.I.O.: ${citizen.fullName}\n`;
+  info += `${citizen.isFamilyHead ? '👑 Oila boshlig\'i' : '👥 Oila a\'zosi'}\n`;
+  info += `Jinsi: ${citizen.gender}\n`;
+  info += `Tug'ilgan sana: ${formatDate(citizen.birthDate)}\n`;
+  info += `Yoshi: ${calculateAge(citizen.birthDate)}\n`;
+  info += `JSHSHIR: ${citizen.jshshir}\n`;
+  info += `Hujjat raqami: ${citizen.documentNumber}\n`;
+  info += `Telefon: ${citizen.phone || 'Kiritilmagan'}\n`;
+  info += `Oilaviy holati: ${citizen.maritalStatus}\n`;
+  info += `Ta'lim: ${citizen.education}\n`;
+  info += `Kasbi/Bandligi: ${citizen.occupation}\n`;
+
+  if (mahalla) info += `\n🏘 Mahalla: ${mahalla.name}\n`;
+  if (family) {
+    info += `🏠 Manzil: ${family.street}, uy ${family.houseNumber}`;
+    if (family.apartmentNumber) info += `, xonadon ${family.apartmentNumber}`;
+    info += `\n📋 Oila ID: ${family.familyId}\n`;
+
+    const members = await Citizen.find({ familyId: family._id, jshshir: { $ne: jshshir } }).sort({ createdAt: 1 }).lean();
+    if (members.length > 0) {
+      info += `\n👥 Boshqa oila a'zolari:\n`;
+      for (const m of members) {
+        info += `${m.isFamilyHead ? '👑' : '  •'} ${m.fullName} (${m.jshshir})\n`;
+      }
+    }
+  }
+
+  await ctx.reply(info);
+}

@@ -23,6 +23,7 @@ async function main(): Promise<void> {
     { command: 'stat', description: 'Statistika' },
     { command: 'add', description: 'Oilaga fuqaro qo\'shish (admin)' },
     { command: 'remove', description: 'Fuqaroni o\'chirish (admin)' },
+    { command: 'find', description: 'Fuqaroni JSHSHIR orqali qidirish (admin)' },
   ]);
 
   bot.launch().catch((error) => {
