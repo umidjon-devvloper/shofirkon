@@ -1,0 +1,163 @@
+import { Context } from 'telegraf';
+import { getSession } from '../session';
+import { isAdmin } from '../../services/auth.service';
+import { Citizen } from '../../models/Citizen';
+import { Family } from '../../models/Family';
+import { Mahalla } from '../../models/Mahalla';
+import { startCitizenFormMember } from './citizen';
+import { cancelKeyboard, adminMenuKeyboard } from '../keyboards';
+
+export async function handleStat(ctx: Context): Promise<void> {
+  if (ctx.chat?.type !== 'private') return;
+
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  const totalCitizens = await Citizen.countDocuments();
+  const totalFamilies = await Family.countDocuments();
+  const totalMahallas = await Mahalla.countDocuments({ isActive: true });
+
+  let msg = "📊 STATISTIKA\n\n";
+  msg += `👥 Jami fuqarolar: ${totalCitizens}\n`;
+  msg += `🏠 Jami oilalar: ${totalFamilies}\n`;
+  msg += `🏘 Jami mahallalar: ${totalMahallas}\n`;
+
+  if (isAdmin(telegramId)) {
+    const mahallas = await Mahalla.find({ isActive: true }).sort({ name: 1 }).lean();
+
+    if (mahallas.length > 0) {
+      msg += "\n📋 Mahallalar bo'yicha:\n\n";
+
+      for (const m of mahallas) {
+        const citizenCount = await Citizen.countDocuments({ mahallaId: m._id });
+        const familyCount = await Family.countDocuments({ mahallaId: m._id });
+        msg += `🏘 ${m.name}\n`;
+        msg += `   👥 ${citizenCount} fuqaro, 🏠 ${familyCount} oila\n\n`;
+      }
+    }
+  }
+
+  await ctx.reply(msg);
+}
+
+export async function handleRemove(ctx: Context): Promise<void> {
+  if (ctx.chat?.type !== 'private') return;
+
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  if (!isAdmin(telegramId)) {
+    await ctx.reply("❌ Bu buyruq faqat admin uchun.");
+    return;
+  }
+
+  const msg = ctx.message;
+  if (!msg || !('text' in msg)) return;
+
+  const parts = msg.text.split(/\s+/);
+  if (parts.length < 2) {
+    await ctx.reply("❌ Format: /remove JSHSHIR\n\nMasalan: /remove 12345678901234");
+    return;
+  }
+
+  const jshshir = parts[1].trim();
+  if (!/^\d{14}$/.test(jshshir)) {
+    await ctx.reply("❌ JSHSHIR 14 ta raqamdan iborat bo'lishi kerak.");
+    return;
+  }
+
+  const citizen = await Citizen.findOne({ jshshir });
+  if (!citizen) {
+    await ctx.reply(`❌ JSHSHIR ${jshshir} bo'yicha fuqaro topilmadi.`);
+    return;
+  }
+
+  const family = await Family.findById(citizen.familyId);
+  const mahalla = await Mahalla.findById(citizen.mahallaId);
+  const wasHead = citizen.isFamilyHead;
+  const familyId = String(citizen.familyId);
+
+  await Citizen.deleteOne({ _id: citizen._id });
+
+  if (wasHead) {
+    const nextHead = await Citizen.findOne({ familyId }).sort({ createdAt: 1 });
+    if (nextHead) {
+      await Citizen.updateOne({ _id: nextHead._id }, { isFamilyHead: true });
+    }
+  }
+
+  let msg2 = `✅ Fuqaro o'chirildi.\n\n`;
+  msg2 += `👤 ${citizen.fullName}\n`;
+  msg2 += `📄 JSHSHIR: ${jshshir}\n`;
+  if (mahalla) msg2 += `🏘 Mahalla: ${mahalla.name}\n`;
+  if (family) msg2 += `🏠 ${family.street}, uy ${family.houseNumber}\n`;
+  if (wasHead) msg2 += `\n⚠️ Oila boshlig'i edi — yangi boshlig' tayinlandi.`;
+
+  await ctx.reply(msg2, adminMenuKeyboard());
+}
+
+export async function handleAdd(ctx: Context): Promise<void> {
+  if (ctx.chat?.type !== 'private') return;
+
+  const telegramId = ctx.from?.id;
+  if (!telegramId) return;
+
+  if (!isAdmin(telegramId)) {
+    await ctx.reply("❌ Bu buyruq faqat admin uchun.");
+    return;
+  }
+
+  const msg = ctx.message;
+  if (!msg || !('text' in msg)) return;
+
+  const parts = msg.text.split(/\s+/);
+  if (parts.length < 2) {
+    await ctx.reply("❌ Format: /add OILA-XXXXXX\n\nMasalan: /add OILA-000001");
+    return;
+  }
+
+  const familyIdStr = parts[1].trim().toUpperCase();
+  if (!/^OILA-\d{6}$/.test(familyIdStr)) {
+    await ctx.reply("❌ Oila ID formati noto'g'ri.\n\nFormat: OILA-XXXXXX\nMasalan: /add OILA-000001");
+    return;
+  }
+
+  const family = await Family.findOne({ familyId: familyIdStr });
+  if (!family) {
+    await ctx.reply(`❌ "${familyIdStr}" oila topilmadi.`);
+    return;
+  }
+
+  const mahalla = await Mahalla.findById(family.mahallaId);
+  if (!mahalla) {
+    await ctx.reply("❌ Oilaga tegishli mahalla topilmadi.");
+    return;
+  }
+
+  const session = getSession(telegramId);
+  session.step = 'citizen_name';
+  session.role = 'admin';
+  session.activeFamilyId = String(family._id);
+  session.mahallaId = String(mahalla._id);
+  session.mahallaName = mahalla.name;
+
+  startCitizenFormMember(session);
+
+  let info = `✅ Oila topildi.\n\n`;
+  info += `🏘 Mahalla: ${mahalla.name}\n`;
+  info += `📍 ${family.street}, uy ${family.houseNumber}`;
+  if (family.apartmentNumber) info += `, xonadon ${family.apartmentNumber}`;
+
+  const members = await Citizen.find({ familyId: family._id }).sort({ createdAt: 1 }).lean();
+  if (members.length > 0) {
+    info += `\n\n👥 Oila a'zolari (${members.length}):\n`;
+    for (const m of members) {
+      info += `${m.isFamilyHead ? '👑' : '  •'} ${m.fullName}\n`;
+    }
+  }
+
+  info += "\n\n👤 Yangi a'zoning ma'lumotlarini kiriting.";
+
+  await ctx.reply(info);
+  await ctx.reply('1. 👤 F.I.O. ni kiriting:', cancelKeyboard());
+}

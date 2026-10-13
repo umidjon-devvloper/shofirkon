@@ -11,6 +11,7 @@ import {
   confirmKeyboard,
   citizenSavedKeyboard,
   operatorMenuKeyboard,
+  adminMenuKeyboard,
 } from '../keyboards';
 
 function isValidJshshir(value: string): boolean {
@@ -62,9 +63,16 @@ export function startCitizenFormMember(session: UserSession): void {
 
 export async function handleCitizenCancel(ctx: Context, session: UserSession): Promise<void> {
   const wasHead = session.tempData.isFamilyHead === 'true';
+  const isAdminRole = session.role === 'admin';
   session.tempData = {};
 
-  if (wasHead) {
+  if (isAdminRole) {
+    session.activeFamilyId = undefined;
+    session.mahallaId = undefined;
+    session.mahallaName = undefined;
+    session.step = 'admin_menu';
+    await ctx.reply('❌ Bekor qilindi.', adminMenuKeyboard());
+  } else if (wasHead) {
     session.activeFamilyId = undefined;
     session.step = 'operator_menu';
     await ctx.reply('❌ Bekor qilindi.', operatorMenuKeyboard());
@@ -242,7 +250,15 @@ export async function handleCitizenConfirm(ctx: Context, session: UserSession, t
       msg = '✅ Oila a\'zosi saqlandi.';
     }
 
-    await ctx.reply(msg, citizenSavedKeyboard());
+    if (session.role === 'admin') {
+      await ctx.reply(msg + "\n\nYana a'zo qo'shish uchun /add buyrug'ini yuboring.", adminMenuKeyboard());
+      session.activeFamilyId = undefined;
+      session.mahallaId = undefined;
+      session.mahallaName = undefined;
+      session.step = 'admin_menu';
+    } else {
+      await ctx.reply(msg, citizenSavedKeyboard());
+    }
   } else if (text === '❌ Bekor qilish') {
     await handleCitizenCancel(ctx, session);
   }
