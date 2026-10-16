@@ -12,6 +12,8 @@ export type UserStep =
   | 'import_menu'
   | 'import_mahalla_select'
   | 'import_waiting_file'
+  | 'operator_import_menu'
+  | 'operator_import_waiting_file'
   | 'family_street'
   | 'family_house'
   | 'family_apartment'

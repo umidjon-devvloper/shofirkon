@@ -26,7 +26,16 @@ export function importMenuKeyboard() {
 export function operatorMenuKeyboard() {
   return Markup.keyboard([
     ['🏠 Yangi oila'],
+    ['📥 Excel eksport', '📤 Excel import'],
     ['🚪 Chiqish'],
+  ]).resize();
+}
+
+export function operatorImportMenuKeyboard() {
+  return Markup.keyboard([
+    ['📄 Shablon olish'],
+    ['📤 Faylni yuklash'],
+    ['❌ Bekor qilish'],
   ]).resize();
 }
 
@@ -51,8 +60,31 @@ export function confirmKeyboard() {
 
 export function referenceConfirmKeyboard() {
   return Markup.keyboard([
-    ['✅ Bazadan foydalanish'],
-    ['✏️ Qo\'lda davom etish'],
+    ["✅ To'g'ri, saqlash"],
+    ['✏️ Tahrirlash'],
+    ['❌ Bekor qilish'],
+  ]).resize();
+}
+
+export function keepFieldKeyboard() {
+  return Markup.keyboard([
+    ['✅ Qoldirish'],
+    ['❌ Bekor qilish'],
+  ]).resize();
+}
+
+export function keepFieldGenderKeyboard() {
+  return Markup.keyboard([
+    ['✅ Qoldirish'],
+    ['👨 Erkak', '👩 Ayol'],
+    ['❌ Bekor qilish'],
+  ]).resize();
+}
+
+export function keepFieldPhoneKeyboard() {
+  return Markup.keyboard([
+    ['✅ Qoldirish'],
+    ["⏭ O'tkazib yuborish"],
     ['❌ Bekor qilish'],
   ]).resize();
 }

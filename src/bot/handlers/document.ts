@@ -3,7 +3,7 @@ import { Context } from 'telegraf';
 import { getSession } from '../session';
 import { isAdmin } from '../../services/auth.service';
 import { importFromExcel, ImportResult } from '../../services/import.service';
-import { adminMenuKeyboard } from '../keyboards';
+import { adminMenuKeyboard, operatorMenuKeyboard } from '../keyboards';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
@@ -14,12 +14,30 @@ export async function handleDocument(ctx: Context): Promise<void> {
   if (!telegramId) return;
 
   const session = getSession(telegramId);
-  if (session.step !== 'import_waiting_file') return;
+  const isOperatorFlow = session.step === 'operator_import_waiting_file';
+  const isAdminFlow = session.step === 'import_waiting_file';
+  if (!isOperatorFlow && !isAdminFlow) return;
 
-  if (!isAdmin(telegramId)) {
+  if (isAdminFlow && !isAdmin(telegramId)) {
     await ctx.reply('❌ Bu amal faqat admin uchun.');
     return;
   }
+  if (isOperatorFlow && session.role !== 'operator') {
+    await ctx.reply('❌ Avval tizimga kiring.');
+    return;
+  }
+
+  const returnTo = async () => {
+    if (isOperatorFlow) {
+      session.step = 'operator_menu';
+      session.tempData = {};
+      await ctx.reply('📋 Operator menyu:', operatorMenuKeyboard());
+    } else {
+      session.step = 'admin_menu';
+      session.tempData = {};
+      await ctx.reply('📋 Admin menyu:', adminMenuKeyboard());
+    }
+  };
 
   const msg = ctx.message;
   if (!msg || !('document' in msg) || !msg.document) {
@@ -42,9 +60,8 @@ export async function handleDocument(ctx: Context): Promise<void> {
   const mahallaId = session.tempData.importMahallaId;
   const mahallaName = session.tempData.importMahallaName;
   if (!mahallaId) {
-    session.step = 'admin_menu';
-    session.tempData = {};
-    await ctx.reply('❌ Mahalla tanlanmagan. Qaytadan boshlang.', adminMenuKeyboard());
+    await ctx.reply('❌ Mahalla tanlanmagan. Qaytadan boshlang.');
+    await returnTo();
     return;
   }
 
@@ -58,9 +75,7 @@ export async function handleDocument(ctx: Context): Promise<void> {
     buffer = Buffer.from(await response.arrayBuffer());
   } catch (err: any) {
     await ctx.reply(`❌ Faylni yuklab bo'lmadi: ${err.message || err}`);
-    session.step = 'admin_menu';
-    session.tempData = {};
-    await ctx.reply('📋 Admin menyu:', adminMenuKeyboard());
+    await returnTo();
     return;
   }
 
@@ -69,9 +84,7 @@ export async function handleDocument(ctx: Context): Promise<void> {
     result = await importFromExcel(mahallaId, buffer);
   } catch (err: any) {
     await ctx.reply(`❌ ${err.message || err}`);
-    session.step = 'admin_menu';
-    session.tempData = {};
-    await ctx.reply('📋 Admin menyu:', adminMenuKeyboard());
+    await returnTo();
     return;
   }
 
@@ -107,7 +120,5 @@ export async function handleDocument(ctx: Context): Promise<void> {
     }
   }
 
-  session.step = 'admin_menu';
-  session.tempData = {};
-  await ctx.reply('📋 Admin menyu:', adminMenuKeyboard());
+  await returnTo();
 }

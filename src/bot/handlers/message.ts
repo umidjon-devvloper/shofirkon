@@ -14,6 +14,7 @@ import {
   skipCancelKeyboard,
   exportMenuKeyboard,
   importMenuKeyboard,
+  operatorImportMenuKeyboard,
 } from '../keyboards';
 import {
   startCitizenFormHead,
@@ -30,6 +31,7 @@ import {
   handleCitizenOccupation,
   handleCitizenConfirm,
   handleCitizenSaved,
+  CITIZEN_FIRST_PROMPT,
 } from './citizen';
 
 const CITIZEN_FORM_STEPS = [
@@ -78,7 +80,8 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
   if (
     text === '❌ Bekor qilish' &&
-    (session.step === 'family_street' || session.step === 'family_house' || session.step === 'family_apartment')
+    (session.step === 'family_street' || session.step === 'family_house' || session.step === 'family_apartment' ||
+     session.step === 'operator_import_menu' || session.step === 'operator_import_waiting_file')
   ) {
     session.step = 'operator_menu';
     session.tempData = {};
@@ -132,6 +135,13 @@ export async function handleMessage(ctx: Context): Promise<void> {
 
     case 'operator_menu':
       await handleOperatorMenu(ctx, session, text);
+      break;
+
+    case 'operator_import_menu':
+      await handleOperatorImportMenu(ctx, session, text);
+      break;
+    case 'operator_import_waiting_file':
+      await ctx.reply("📎 Excel (.xlsx) faylni biriktirib yuboring yoki bekor qiling.");
       break;
 
     case 'family_street':
@@ -423,6 +433,80 @@ async function handleOperatorMenu(ctx: Context, session: UserSession, text: stri
     session.step = 'family_street';
     session.tempData = {};
     await ctx.reply("🏠 Yangi oila yaratamiz.\n\n📍 Ko'cha nomini kiriting:", cancelKeyboard());
+    return;
+  }
+
+  if (text === '📥 Excel eksport') {
+    if (!session.mahallaId || !session.mahallaName) {
+      await ctx.reply('❌ Mahalla aniqlanmadi. /start buyrug\'ini yuboring.');
+      return;
+    }
+    await ctx.reply('📊 Excel tayyorlanmoqda...');
+    try {
+      const { filePath, fileName, count } = await exportByMahalla(session.mahallaId, session.mahallaName);
+      await ctx.replyWithDocument(
+        { source: filePath, filename: fileName },
+        { caption: `✅ ${session.mahallaName}: ${count} ta fuqaro` }
+      );
+      fs.unlinkSync(filePath);
+    } catch (err: any) {
+      await ctx.reply(`❌ ${err.message}`);
+    }
+    await ctx.reply('📋 Operator menyu:', operatorMenuKeyboard());
+    return;
+  }
+
+  if (text === '📤 Excel import') {
+    session.step = 'operator_import_menu';
+    session.tempData = {};
+    await ctx.reply(
+      "📤 Excel import.\n\n" +
+      "📄 Shablon olish — bo'sh namuna fayl.\n" +
+      "📤 Faylni yuklash — to'ldirilgan faylni mahallaga yozish.",
+      operatorImportMenuKeyboard()
+    );
+    return;
+  }
+}
+
+async function handleOperatorImportMenu(ctx: Context, session: UserSession, text: string): Promise<void> {
+  if (session.role !== 'operator') return;
+
+  if (text === '📄 Shablon olish') {
+    await ctx.reply('📄 Shablon tayyorlanmoqda...');
+    try {
+      const { filePath, fileName } = await buildImportTemplate();
+      await ctx.replyWithDocument(
+        { source: filePath, filename: fileName },
+        {
+          caption:
+            "📄 Shablonni to'ldirib qaytaring.\n\n" +
+            "• Ikkita misol qator berilgan — ularni almashtiring yoki o'chiring.\n" +
+            "• \"Yo'riqnoma\" varag'ida har bir ustunning izohi bor.",
+        }
+      );
+      fs.unlinkSync(filePath);
+    } catch (err: any) {
+      await ctx.reply(`❌ ${err.message}`);
+    }
+    return;
+  }
+
+  if (text === '📤 Faylni yuklash') {
+    if (!session.mahallaId || !session.mahallaName) {
+      await ctx.reply('❌ Mahalla aniqlanmadi. /start buyrug\'ini yuboring.');
+      return;
+    }
+    session.step = 'operator_import_waiting_file';
+    session.tempData = {
+      importMahallaId: session.mahallaId,
+      importMahallaName: session.mahallaName,
+    };
+    await ctx.reply(
+      `✅ Mahalla: ${session.mahallaName}\n\n📎 Excel (.xlsx) faylni biriktirib yuboring.`,
+      cancelKeyboard()
+    );
+    return;
   }
 }
 
@@ -483,5 +567,5 @@ async function handleFamilyApartment(ctx: Context, session: UserSession, text: s
   await ctx.reply(message);
 
   startCitizenFormHead(session);
-  await ctx.reply('1. 👤 F.I.O. ni kiriting:', cancelKeyboard());
+  await ctx.reply(CITIZEN_FIRST_PROMPT, cancelKeyboard());
 }

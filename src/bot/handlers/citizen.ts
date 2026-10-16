@@ -11,10 +11,15 @@ import {
   educationKeyboard,
   confirmKeyboard,
   referenceConfirmKeyboard,
+  keepFieldKeyboard,
+  keepFieldGenderKeyboard,
+  keepFieldPhoneKeyboard,
   citizenSavedKeyboard,
   operatorMenuKeyboard,
   adminMenuKeyboard,
 } from '../keyboards';
+
+const KEEP = '✅ Qoldirish';
 
 function isValidJshshir(value: string): boolean {
   return /^\d{14}$/.test(value);
@@ -44,9 +49,7 @@ function calculateAge(birthDate: Date): number {
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
   const m = today.getMonth() - birthDate.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
-  }
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
   return age;
 }
 
@@ -60,15 +63,26 @@ function currentStep(session: UserSession): string {
   return session.tempData.stepNum || '1';
 }
 
+function isEditMode(session: UserSession): boolean {
+  return session.tempData.editMode === 'true';
+}
+
+function has(session: UserSession, field: string): boolean {
+  const v = session.tempData[field];
+  return !!v && v.trim().length > 0;
+}
+
 export function startCitizenFormHead(session: UserSession): void {
-  session.tempData = { isFamilyHead: 'true', stepNum: '1' };
-  session.step = 'citizen_name';
+  session.tempData = { isFamilyHead: 'true', stepNum: '0' };
+  session.step = 'citizen_jshshir';
 }
 
 export function startCitizenFormMember(session: UserSession): void {
-  session.tempData = { isFamilyHead: 'false', stepNum: '1' };
-  session.step = 'citizen_name';
+  session.tempData = { isFamilyHead: 'false', stepNum: '0' };
+  session.step = 'citizen_jshshir';
 }
+
+export const CITIZEN_FIRST_PROMPT = '1. 📄 JSHSHIR ni kiriting (14 raqam):';
 
 export async function handleCitizenCancel(ctx: Context, session: UserSession): Promise<void> {
   const wasHead = session.tempData.isFamilyHead === 'true';
@@ -91,60 +105,22 @@ export async function handleCitizenCancel(ctx: Context, session: UserSession): P
   }
 }
 
-export async function handleCitizenName(ctx: Context, session: UserSession, text: string): Promise<void> {
-  if (!text.trim()) {
-    await ctx.reply("❌ F.I.O. bo'sh bo'lishi mumkin emas. Qaytadan kiriting:");
-    return;
-  }
-  session.tempData.fullName = text.trim();
-  session.step = 'citizen_gender';
-  const s = advanceStep(session);
-  await ctx.reply(`${s}. Jinsini tanlang:`, genderKeyboard());
-}
-
-export async function handleCitizenGender(ctx: Context, session: UserSession, text: string): Promise<void> {
-  if (text === '👨 Erkak') {
-    session.tempData.gender = 'Erkak';
-  } else if (text === '👩 Ayol') {
-    session.tempData.gender = 'Ayol';
-  } else {
-    await ctx.reply(`${currentStep(session)}. Jinsini tanlang:`, genderKeyboard());
-    return;
-  }
-  session.step = 'citizen_birthdate';
-  const s = advanceStep(session);
-  await ctx.reply(`${s}. Tug'ilgan sanani kiriting (KK.OO.YYYY):\n\nMasalan: 15.03.1985`, cancelKeyboard());
-}
-
-export async function handleCitizenBirthDate(ctx: Context, session: UserSession, text: string): Promise<void> {
-  const date = parseBirthDate(text.trim());
-  if (!date) {
-    await ctx.reply("❌ Noto'g'ri sana formati.\nKK.OO.YYYY formatida kiriting.\n\nMasalan: 15.03.1985");
-    return;
-  }
-  session.tempData.birthDate = text.trim();
-  session.step = 'citizen_jshshir';
-  const s = advanceStep(session);
-  await ctx.reply(`${s}. JSHSHIR ni kiriting (14 raqam):`, cancelKeyboard());
-}
-
 export async function handleCitizenJshshir(ctx: Context, session: UserSession, text: string): Promise<void> {
   const jshshir = text.trim();
   if (!isValidJshshir(jshshir)) {
     await ctx.reply("❌ JSHSHIR 14 ta raqamdan iborat bo'lishi kerak.\nQaytadan kiriting:");
     return;
   }
+  advanceStep(session);
   session.tempData.jshshir = jshshir;
 
   const ref = await findReferenceByJshshir(jshshir);
   if (ref) {
-    session.tempData.refFullName = ref.fullName || '';
-    session.tempData.refGender = ref.gender || genderFromJshshir(jshshir) || '';
-    session.tempData.refBirthDate = ref.birthDate ? formatDMY(ref.birthDate) : '';
-    session.tempData.refPassport = ref.passport || '';
-    session.tempData.refPhone = ref.phone || '';
-    session.tempData.refAddress = ref.address || '';
-    session.tempData.refMahalla = ref.mahallaName || '';
+    session.tempData.fullName = ref.fullName || '';
+    session.tempData.gender = ref.gender || genderFromJshshir(jshshir) || '';
+    session.tempData.birthDate = ref.birthDate ? formatDMY(ref.birthDate) : '';
+    if (ref.passport) session.tempData.documentNumber = ref.passport;
+    if (ref.phone) session.tempData.phone = ref.phone;
 
     let msg = "💡 BAZADAN TOPILDI\n\n";
     msg += `👤 F.I.O.: ${ref.fullName}\n`;
@@ -153,84 +129,170 @@ export async function handleCitizenJshshir(ctx: Context, session: UserSession, t
     msg += `JSHSHIR: ${jshshir}\n`;
     if (ref.passport) msg += `Pasport: ${ref.passport}\n`;
     if (ref.phone) msg += `Telefon: ${ref.phone}\n`;
-    if (ref.address) msg += `Manzil: ${ref.address}\n`;
+    if (ref.address) msg += `Manzil (bazadagi): ${ref.address}\n`;
     if (ref.mahallaName) msg += `Mahalla (bazadagi): ${ref.mahallaName}\n`;
-    msg += "\n✅ Bazadan foydalanishni tanlasangiz, yuqoridagi ma'lumotlar avtomatik qo'yiladi va faqat qolgan maydonlarni to'ldirasiz.";
+    msg += "\n✅ To'g'ri, saqlash — oilaviy holat, ta'lim va kasb so'raladi.";
+    msg += "\n✏️ Tahrirlash — har bir maydon alohida tekshiriladi.";
 
     session.step = 'citizen_reference_confirm';
     await ctx.reply(msg, referenceConfirmKeyboard());
     return;
   }
 
+  session.step = 'citizen_name';
+  const s = advanceStep(session);
+  await ctx.reply(`${s}. 👤 F.I.O. ni kiriting:`, cancelKeyboard());
+}
+
+async function askDocNumber(ctx: Context, session: UserSession): Promise<void> {
   session.step = 'citizen_doc_number';
   const s = advanceStep(session);
-  await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
+  if (isEditMode(session) && has(session, 'documentNumber')) {
+    await ctx.reply(
+      `${s}. Hujjat raqamini kiriting:\n\n💡 Hozirgi: ${session.tempData.documentNumber}`,
+      keepFieldKeyboard()
+    );
+  } else {
+    await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
+  }
+}
+
+async function askPhone(ctx: Context, session: UserSession): Promise<void> {
+  session.step = 'citizen_phone';
+  const s = advanceStep(session);
+  if (isEditMode(session) && has(session, 'phone')) {
+    await ctx.reply(
+      `${s}. 📞 Telefon raqamini kiriting:\n\n💡 Hozirgi: ${session.tempData.phone}`,
+      keepFieldPhoneKeyboard()
+    );
+  } else {
+    await ctx.reply(`${s}. 📞 Telefon raqamini kiriting:`, phoneKeyboard());
+  }
+}
+
+async function askMarital(ctx: Context, session: UserSession): Promise<void> {
+  session.step = 'citizen_marital';
+  const s = advanceStep(session);
+  const kb = session.tempData.gender === 'Erkak' ? maritalKeyboardMale() : maritalKeyboardFemale();
+  await ctx.reply(`${s}. Oilaviy holatini tanlang:`, kb);
 }
 
 export async function handleCitizenReferenceConfirm(ctx: Context, session: UserSession, text: string): Promise<void> {
-  if (text === '✅ Bazadan foydalanish') {
-    const d = session.tempData;
-    if (d.refFullName) d.fullName = d.refFullName;
-    if (d.refGender) d.gender = d.refGender;
-    if (d.refBirthDate) d.birthDate = d.refBirthDate;
-    if (d.refPassport) d.documentNumber = d.refPassport;
-    if (d.refPhone) d.phone = d.refPhone;
-
-    delete d.refFullName; delete d.refGender; delete d.refBirthDate;
-    delete d.refPassport; delete d.refPhone; delete d.refAddress; delete d.refMahalla;
-
-    if (!d.documentNumber) {
-      session.step = 'citizen_doc_number';
-      const s = advanceStep(session);
-      await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
-      return;
-    }
-    if (!d.phone) {
-      session.step = 'citizen_phone';
-      const s = advanceStep(session);
-      await ctx.reply(`${s}. 📞 Telefon raqamini kiriting:`, phoneKeyboard());
-      return;
-    }
-    session.step = 'citizen_marital';
-    const s = advanceStep(session);
-    const keyboard = d.gender === 'Erkak' ? maritalKeyboardMale() : maritalKeyboardFemale();
-    await ctx.reply(`${s}. Oilaviy holatini tanlang:`, keyboard);
-    return;
+  if (text === "✅ To'g'ri, saqlash") {
+    session.tempData.editMode = '';
+    if (!has(session, 'documentNumber')) return askDocNumber(ctx, session);
+    if (!has(session, 'phone')) return askPhone(ctx, session);
+    return askMarital(ctx, session);
   }
 
-  if (text === "✏️ Qo'lda davom etish") {
-    const d = session.tempData;
-    delete d.refFullName; delete d.refGender; delete d.refBirthDate;
-    delete d.refPassport; delete d.refPhone; delete d.refAddress; delete d.refMahalla;
-
-    session.step = 'citizen_doc_number';
+  if (text === '✏️ Tahrirlash') {
+    session.tempData.editMode = 'true';
+    session.step = 'citizen_name';
     const s = advanceStep(session);
-    await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
+    const current = session.tempData.fullName;
+    await ctx.reply(
+      `${s}. 👤 F.I.O. ni kiriting:${current ? `\n\n💡 Hozirgi: ${current}` : ''}`,
+      current ? keepFieldKeyboard() : cancelKeyboard()
+    );
     return;
   }
 
   await ctx.reply('Tugmalardan birini tanlang:', referenceConfirmKeyboard());
 }
 
-export async function handleCitizenDocNumber(ctx: Context, session: UserSession, text: string): Promise<void> {
-  if (!text.trim()) {
-    await ctx.reply("❌ Hujjat raqami bo'sh bo'lishi mumkin emas. Qaytadan kiriting:");
+export async function handleCitizenName(ctx: Context, session: UserSession, text: string): Promise<void> {
+  const edit = isEditMode(session);
+  if (text === KEEP && edit && has(session, 'fullName')) {
+    // keep
+  } else {
+    if (!text.trim()) {
+      await ctx.reply("❌ F.I.O. bo'sh bo'lishi mumkin emas. Qaytadan kiriting:");
+      return;
+    }
+    session.tempData.fullName = text.trim();
+  }
+  session.step = 'citizen_gender';
+  const s = advanceStep(session);
+  if (edit && has(session, 'gender')) {
+    await ctx.reply(
+      `${s}. Jinsini tanlang:\n\n💡 Hozirgi: ${session.tempData.gender}`,
+      keepFieldGenderKeyboard()
+    );
+  } else {
+    await ctx.reply(`${s}. Jinsini tanlang:`, genderKeyboard());
+  }
+}
+
+export async function handleCitizenGender(ctx: Context, session: UserSession, text: string): Promise<void> {
+  const edit = isEditMode(session);
+  if (text === KEEP && edit && has(session, 'gender')) {
+    // keep
+  } else if (text === '👨 Erkak') {
+    session.tempData.gender = 'Erkak';
+  } else if (text === '👩 Ayol') {
+    session.tempData.gender = 'Ayol';
+  } else {
+    if (edit && has(session, 'gender')) {
+      await ctx.reply(
+        `${currentStep(session)}. Jinsini tanlang:\n\n💡 Hozirgi: ${session.tempData.gender}`,
+        keepFieldGenderKeyboard()
+      );
+    } else {
+      await ctx.reply(`${currentStep(session)}. Jinsini tanlang:`, genderKeyboard());
+    }
     return;
   }
-  session.tempData.documentNumber = text.trim();
-  session.step = 'citizen_phone';
+  session.step = 'citizen_birthdate';
   const s = advanceStep(session);
-  await ctx.reply(`${s}. 📞 Telefon raqamini kiriting:`, phoneKeyboard());
+  if (edit && has(session, 'birthDate')) {
+    await ctx.reply(
+      `${s}. Tug'ilgan sanani kiriting (KK.OO.YYYY):\n\n💡 Hozirgi: ${session.tempData.birthDate}`,
+      keepFieldKeyboard()
+    );
+  } else {
+    await ctx.reply(`${s}. Tug'ilgan sanani kiriting (KK.OO.YYYY):\n\nMasalan: 15.03.1985`, cancelKeyboard());
+  }
+}
+
+export async function handleCitizenBirthDate(ctx: Context, session: UserSession, text: string): Promise<void> {
+  const edit = isEditMode(session);
+  if (text === KEEP && edit && has(session, 'birthDate')) {
+    // keep
+  } else {
+    const date = parseBirthDate(text.trim());
+    if (!date) {
+      await ctx.reply("❌ Noto'g'ri sana formati.\nKK.OO.YYYY formatida kiriting.\n\nMasalan: 15.03.1985");
+      return;
+    }
+    session.tempData.birthDate = text.trim();
+  }
+  await askDocNumber(ctx, session);
+}
+
+export async function handleCitizenDocNumber(ctx: Context, session: UserSession, text: string): Promise<void> {
+  const edit = isEditMode(session);
+  if (text === KEEP && edit && has(session, 'documentNumber')) {
+    // keep
+  } else {
+    if (!text.trim()) {
+      await ctx.reply("❌ Hujjat raqami bo'sh bo'lishi mumkin emas. Qaytadan kiriting:");
+      return;
+    }
+    session.tempData.documentNumber = text.trim();
+  }
+  await askPhone(ctx, session);
 }
 
 export async function handleCitizenPhone(ctx: Context, session: UserSession, text: string): Promise<void> {
-  if (text !== '⏭ O\'tkazib yuborish') {
+  const edit = isEditMode(session);
+  if (text === KEEP && edit && has(session, 'phone')) {
+    // keep
+  } else if (text === "⏭ O'tkazib yuborish") {
+    session.tempData.phone = '';
+  } else {
     session.tempData.phone = text.trim();
   }
-  session.step = 'citizen_marital';
-  const s = advanceStep(session);
-  const keyboard = session.tempData.gender === 'Erkak' ? maritalKeyboardMale() : maritalKeyboardFemale();
-  await ctx.reply(`${s}. Oilaviy holatini tanlang:`, keyboard);
+  await askMarital(ctx, session);
 }
 
 const VALID_MARITAL_MALE = ['Uylangan', "Bo'ydoq", 'Ajrashgan', 'Beva'];
@@ -348,7 +410,7 @@ export async function handleCitizenConfirm(ctx: Context, session: UserSession, t
 export async function handleCitizenSaved(ctx: Context, session: UserSession, text: string): Promise<void> {
   if (text === '➕ Oila a\'zosi qo\'shish') {
     startCitizenFormMember(session);
-    await ctx.reply('1. 👤 F.I.O. ni kiriting:', cancelKeyboard());
+    await ctx.reply(CITIZEN_FIRST_PROMPT, cancelKeyboard());
   } else if (text === '✅ Oilani yakunlash') {
     session.activeFamilyId = undefined;
     session.step = 'operator_menu';

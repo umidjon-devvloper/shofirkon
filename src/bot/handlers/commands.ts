@@ -5,7 +5,7 @@ import { Citizen } from '../../models/Citizen';
 import { Family } from '../../models/Family';
 import { Mahalla } from '../../models/Mahalla';
 import { findReferenceByJshshir } from '../../services/reference.service';
-import { startCitizenFormMember } from './citizen';
+import { startCitizenFormMember, CITIZEN_FIRST_PROMPT } from './citizen';
 import { cancelKeyboard, adminMenuKeyboard } from '../keyboards';
 
 export async function handleStat(ctx: Context): Promise<void> {
@@ -160,7 +160,7 @@ export async function handleAdd(ctx: Context): Promise<void> {
   info += "\n\n👤 Yangi a'zoning ma'lumotlarini kiriting.";
 
   await ctx.reply(info);
-  await ctx.reply('1. 👤 F.I.O. ni kiriting:', cancelKeyboard());
+  await ctx.reply(CITIZEN_FIRST_PROMPT, cancelKeyboard());
 }
 
 function formatDate(date: Date): string {
