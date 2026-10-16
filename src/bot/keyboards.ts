@@ -3,7 +3,7 @@ import { Markup } from 'telegraf';
 export function adminMenuKeyboard() {
   return Markup.keyboard([
     ['🏘 Mahallalar', '➕ Mahalla qo\'shish'],
-    ['📥 Excel eksport'],
+    ['📥 Excel eksport', '📤 Excel import'],
   ]).resize();
 }
 
@@ -11,6 +11,14 @@ export function exportMenuKeyboard() {
   return Markup.keyboard([
     ['📥 Barcha Shofirkon'],
     ['📥 Mahalla bo\'yicha'],
+    ['❌ Bekor qilish'],
+  ]).resize();
+}
+
+export function importMenuKeyboard() {
+  return Markup.keyboard([
+    ['📄 Shablon olish'],
+    ['📤 Mahallaga yuklash'],
     ['❌ Bekor qilish'],
   ]).resize();
 }
@@ -39,6 +47,14 @@ export function citizenSavedKeyboard() {
 
 export function confirmKeyboard() {
   return Markup.keyboard([['✅ Saqlash', '❌ Bekor qilish']]).resize();
+}
+
+export function referenceConfirmKeyboard() {
+  return Markup.keyboard([
+    ['✅ Bazadan foydalanish'],
+    ['✏️ Qo\'lda davom etish'],
+    ['❌ Bekor qilish'],
+  ]).resize();
 }
 
 export function genderKeyboard() {

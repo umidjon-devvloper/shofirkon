@@ -1,6 +1,7 @@
 import { Context } from 'telegraf';
 import { UserSession } from '../../types/session';
 import { upsertCitizen } from '../../services/citizen.service';
+import { findReferenceByJshshir, genderFromJshshir } from '../../services/reference.service';
 import {
   cancelKeyboard,
   genderKeyboard,
@@ -9,6 +10,7 @@ import {
   maritalKeyboardFemale,
   educationKeyboard,
   confirmKeyboard,
+  referenceConfirmKeyboard,
   citizenSavedKeyboard,
   operatorMenuKeyboard,
   adminMenuKeyboard,
@@ -29,6 +31,13 @@ function parseBirthDate(dateStr: string): Date | null {
   if (date > new Date()) return null;
   if (year < 1900) return null;
   return date;
+}
+
+function formatDMY(date: Date): string {
+  const d = date.getDate().toString().padStart(2, '0');
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}.${m}.${y}`;
 }
 
 function calculateAge(birthDate: Date): number {
@@ -126,9 +135,81 @@ export async function handleCitizenJshshir(ctx: Context, session: UserSession, t
     return;
   }
   session.tempData.jshshir = jshshir;
+
+  const ref = await findReferenceByJshshir(jshshir);
+  if (ref) {
+    session.tempData.refFullName = ref.fullName || '';
+    session.tempData.refGender = ref.gender || genderFromJshshir(jshshir) || '';
+    session.tempData.refBirthDate = ref.birthDate ? formatDMY(ref.birthDate) : '';
+    session.tempData.refPassport = ref.passport || '';
+    session.tempData.refPhone = ref.phone || '';
+    session.tempData.refAddress = ref.address || '';
+    session.tempData.refMahalla = ref.mahallaName || '';
+
+    let msg = "💡 BAZADAN TOPILDI\n\n";
+    msg += `👤 F.I.O.: ${ref.fullName}\n`;
+    if (ref.gender) msg += `Jinsi: ${ref.gender}\n`;
+    if (ref.birthDate) msg += `Tug'ilgan sana: ${formatDMY(ref.birthDate)}\n`;
+    msg += `JSHSHIR: ${jshshir}\n`;
+    if (ref.passport) msg += `Pasport: ${ref.passport}\n`;
+    if (ref.phone) msg += `Telefon: ${ref.phone}\n`;
+    if (ref.address) msg += `Manzil: ${ref.address}\n`;
+    if (ref.mahallaName) msg += `Mahalla (bazadagi): ${ref.mahallaName}\n`;
+    msg += "\n✅ Bazadan foydalanishni tanlasangiz, yuqoridagi ma'lumotlar avtomatik qo'yiladi va faqat qolgan maydonlarni to'ldirasiz.";
+
+    session.step = 'citizen_reference_confirm';
+    await ctx.reply(msg, referenceConfirmKeyboard());
+    return;
+  }
+
   session.step = 'citizen_doc_number';
   const s = advanceStep(session);
   await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
+}
+
+export async function handleCitizenReferenceConfirm(ctx: Context, session: UserSession, text: string): Promise<void> {
+  if (text === '✅ Bazadan foydalanish') {
+    const d = session.tempData;
+    if (d.refFullName) d.fullName = d.refFullName;
+    if (d.refGender) d.gender = d.refGender;
+    if (d.refBirthDate) d.birthDate = d.refBirthDate;
+    if (d.refPassport) d.documentNumber = d.refPassport;
+    if (d.refPhone) d.phone = d.refPhone;
+
+    delete d.refFullName; delete d.refGender; delete d.refBirthDate;
+    delete d.refPassport; delete d.refPhone; delete d.refAddress; delete d.refMahalla;
+
+    if (!d.documentNumber) {
+      session.step = 'citizen_doc_number';
+      const s = advanceStep(session);
+      await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
+      return;
+    }
+    if (!d.phone) {
+      session.step = 'citizen_phone';
+      const s = advanceStep(session);
+      await ctx.reply(`${s}. 📞 Telefon raqamini kiriting:`, phoneKeyboard());
+      return;
+    }
+    session.step = 'citizen_marital';
+    const s = advanceStep(session);
+    const keyboard = d.gender === 'Erkak' ? maritalKeyboardMale() : maritalKeyboardFemale();
+    await ctx.reply(`${s}. Oilaviy holatini tanlang:`, keyboard);
+    return;
+  }
+
+  if (text === "✏️ Qo'lda davom etish") {
+    const d = session.tempData;
+    delete d.refFullName; delete d.refGender; delete d.refBirthDate;
+    delete d.refPassport; delete d.refPhone; delete d.refAddress; delete d.refMahalla;
+
+    session.step = 'citizen_doc_number';
+    const s = advanceStep(session);
+    await ctx.reply(`${s}. Hujjat raqamini kiriting:`, cancelKeyboard());
+    return;
+  }
+
+  await ctx.reply('Tugmalardan birini tanlang:', referenceConfirmKeyboard());
 }
 
 export async function handleCitizenDocNumber(ctx: Context, session: UserSession, text: string): Promise<void> {

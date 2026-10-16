@@ -2,6 +2,7 @@ import { Telegraf } from 'telegraf';
 import { env } from '../config/env';
 import { handleStart } from './handlers/start';
 import { handleMessage } from './handlers/message';
+import { handleDocument } from './handlers/document';
 import { handleStat, handleRemove, handleAdd, handleFind } from './handlers/commands';
 
 export function createBot(): Telegraf {
@@ -19,6 +20,7 @@ export function createBot(): Telegraf {
   bot.command('remove', handleRemove);
   bot.command('add', handleAdd);
   bot.command('find', handleFind);
+  bot.on('document', handleDocument);
   bot.on('text', handleMessage);
 
   return bot;

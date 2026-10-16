@@ -6,12 +6,14 @@ import { isAdmin, verifyOperator, loginOperator, logoutOperator } from '../../se
 import { createMahalla, getAllMahallas, isLoginTaken } from '../../services/mahalla.service';
 import { createFamily } from '../../services/family.service';
 import { exportAllCitizens, exportByMahalla } from '../../services/export.service';
+import { buildImportTemplate } from '../../services/import.service';
 import {
   adminMenuKeyboard,
   operatorMenuKeyboard,
   cancelKeyboard,
   skipCancelKeyboard,
   exportMenuKeyboard,
+  importMenuKeyboard,
 } from '../keyboards';
 import {
   startCitizenFormHead,
@@ -20,6 +22,7 @@ import {
   handleCitizenGender,
   handleCitizenBirthDate,
   handleCitizenJshshir,
+  handleCitizenReferenceConfirm,
   handleCitizenDocNumber,
   handleCitizenPhone,
   handleCitizenMarital,
@@ -31,7 +34,8 @@ import {
 
 const CITIZEN_FORM_STEPS = [
   'citizen_name', 'citizen_gender', 'citizen_birthdate',
-  'citizen_jshshir', 'citizen_doc_number', 'citizen_phone',
+  'citizen_jshshir', 'citizen_reference_confirm',
+  'citizen_doc_number', 'citizen_phone',
   'citizen_marital', 'citizen_education', 'citizen_occupation', 'citizen_confirm',
 ];
 
@@ -61,6 +65,8 @@ export async function handleMessage(ctx: Context): Promise<void> {
   if (
     text === '❌ Bekor qilish' &&
     (session.step === 'export_menu' || session.step === 'export_mahalla_select' ||
+     session.step === 'import_menu' || session.step === 'import_mahalla_select' ||
+     session.step === 'import_waiting_file' ||
      session.step === 'adding_mahalla_name' || session.step === 'adding_mahalla_login' ||
      session.step === 'adding_mahalla_password')
   ) {
@@ -114,6 +120,16 @@ export async function handleMessage(ctx: Context): Promise<void> {
       await handleExportMahallaSelect(ctx, session, telegramId, text);
       break;
 
+    case 'import_menu':
+      await handleImportMenu(ctx, session, telegramId, text);
+      break;
+    case 'import_mahalla_select':
+      await handleImportMahallaSelect(ctx, session, telegramId, text);
+      break;
+    case 'import_waiting_file':
+      await ctx.reply("📎 Excel (.xlsx) faylni biriktirib yuboring yoki bekor qiling.");
+      break;
+
     case 'operator_menu':
       await handleOperatorMenu(ctx, session, text);
       break;
@@ -139,6 +155,9 @@ export async function handleMessage(ctx: Context): Promise<void> {
       break;
     case 'citizen_jshshir':
       await handleCitizenJshshir(ctx, session, text);
+      break;
+    case 'citizen_reference_confirm':
+      await handleCitizenReferenceConfirm(ctx, session, text);
       break;
     case 'citizen_doc_number':
       await handleCitizenDocNumber(ctx, session, text);
@@ -223,6 +242,15 @@ async function handleAdminMenu(ctx: Context, session: UserSession, telegramId: n
   } else if (text === '📥 Excel eksport') {
     session.step = 'export_menu';
     await ctx.reply('📥 Excel eksport turini tanlang:', exportMenuKeyboard());
+  } else if (text === '📤 Excel import') {
+    session.step = 'import_menu';
+    session.tempData = {};
+    await ctx.reply(
+      "📤 Excel import.\n\n" +
+      "📄 Shablon olish — bo'sh namuna fayl.\n" +
+      "📤 Mahallaga yuklash — tanlangan mahallaga fayldagi fuqarolarni yozish.",
+      importMenuKeyboard()
+    );
   }
 }
 
@@ -330,6 +358,64 @@ async function handleExportMahallaSelect(ctx: Context, session: UserSession, tel
   }
   session.step = 'admin_menu';
   await ctx.reply('📋 Admin menyu:', adminMenuKeyboard());
+}
+
+async function handleImportMenu(ctx: Context, session: UserSession, telegramId: number, text: string): Promise<void> {
+  if (!isAdmin(telegramId)) return;
+
+  if (text === '📄 Shablon olish') {
+    await ctx.reply('📄 Shablon tayyorlanmoqda...');
+    try {
+      const { filePath, fileName } = await buildImportTemplate();
+      await ctx.replyWithDocument(
+        { source: filePath, filename: fileName },
+        {
+          caption:
+            "📄 Shablonni to'ldirib qaytaring.\n\n" +
+            "• Ikkita misol qator berilgan — ularni almashtiring yoki o'chiring.\n" +
+            "• \"Yo'riqnoma\" varag'ida har bir ustunning izohi bor.",
+        }
+      );
+      fs.unlinkSync(filePath);
+    } catch (err: any) {
+      await ctx.reply(`❌ ${err.message}`);
+    }
+  } else if (text === '📤 Mahallaga yuklash') {
+    const mahallas = await getAllMahallas();
+    if (mahallas.length === 0) {
+      await ctx.reply('Hozircha mahallalar mavjud emas.', adminMenuKeyboard());
+      session.step = 'admin_menu';
+      return;
+    }
+    const buttons = mahallas.map((m) => [m.name]);
+    buttons.push(['❌ Bekor qilish']);
+    session.step = 'import_mahalla_select';
+    await ctx.reply('🏘 Qaysi mahallaga yuklaymiz?', Markup.keyboard(buttons).resize());
+  }
+}
+
+async function handleImportMahallaSelect(ctx: Context, session: UserSession, telegramId: number, text: string): Promise<void> {
+  if (!isAdmin(telegramId)) return;
+
+  const mahallas = await getAllMahallas();
+  const selected = mahallas.find((m) => m.name === text);
+  if (!selected) {
+    await ctx.reply("❌ Bunday mahalla topilmadi. Ro'yxatdan tanlang.");
+    return;
+  }
+
+  session.step = 'import_waiting_file';
+  session.tempData = {
+    importMahallaId: String(selected._id),
+    importMahallaName: selected.name,
+  };
+
+  await ctx.reply(
+    `✅ Tanlandi: ${selected.name}\n\n` +
+    "📎 Excel (.xlsx) faylni biriktirib yuboring.\n\n" +
+    "Fayl ichidagi mahalla nomi ustuni e'tiborga olinmaydi — barcha fuqarolar shu mahallaga yoziladi.",
+    cancelKeyboard()
+  );
 }
 
 async function handleOperatorMenu(ctx: Context, session: UserSession, text: string): Promise<void> {

@@ -4,6 +4,7 @@ import { isAdmin } from '../../services/auth.service';
 import { Citizen } from '../../models/Citizen';
 import { Family } from '../../models/Family';
 import { Mahalla } from '../../models/Mahalla';
+import { findReferenceByJshshir } from '../../services/reference.service';
 import { startCitizenFormMember } from './citizen';
 import { cancelKeyboard, adminMenuKeyboard } from '../keyboards';
 
@@ -205,6 +206,21 @@ export async function handleFind(ctx: Context): Promise<void> {
 
   const citizen = await Citizen.findOne({ jshshir }).lean();
   if (!citizen) {
+    const ref = await findReferenceByJshshir(jshshir);
+    if (ref) {
+      let info = "ℹ️ Fuqaro ro'yxatga olinmagan, lekin bazada mavjud:\n\n";
+      info += `👤 F.I.O.: ${ref.fullName}\n`;
+      if (ref.gender) info += `Jinsi: ${ref.gender}\n`;
+      if (ref.birthDate) info += `Tug'ilgan sana: ${formatDate(ref.birthDate)}\n`;
+      info += `JSHSHIR: ${jshshir}\n`;
+      if (ref.passport) info += `Pasport: ${ref.passport}\n`;
+      if (ref.phone) info += `Telefon: ${ref.phone}\n`;
+      if (ref.address) info += `Manzil: ${ref.address}\n`;
+      if (ref.mahallaName) info += `Mahalla (bazadagi): ${ref.mahallaName}\n`;
+      info += `\n📥 Manba: ${(ref.sources || []).join(', ')}`;
+      await ctx.reply(info);
+      return;
+    }
     await ctx.reply(`❌ JSHSHIR ${jshshir} bo'yicha fuqaro topilmadi.`);
     return;
   }
